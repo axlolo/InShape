@@ -1,15 +1,12 @@
 'use client';
 
 import Link from "next/link";
-import { useState } from "react";
-import { getTodaysShape } from "../utils/shapes";
+import { useState, useEffect } from "react";
+import { getTodaysShape, primaryShapes } from "../utils/shapes";
 import ProtectedRoute from "../components/ProtectedRoute";
 import ChallengeModal from "../components/ChallengeModal";
 import ShapeOverlay from "../components/ShapeOverlay";
 import { useChallenge } from "../contexts/ChallengeContext";
-
-// Get today's shape dynamically
-const todaysShape = getTodaysShape();
 
 const mockGroups = [
   {
@@ -46,11 +43,46 @@ const mockGroups = [
 
 export default function Home() {
   const [isChallengeModalOpen, setIsChallengeModalOpen] = useState(false);
-  const { challengeResult, selectedRun } = useChallenge();
+  const [selectedShapeId, setSelectedShapeId] = useState('rectangle');
+  const { challengeResult, selectedRun, clearChallengeResult } = useChallenge();
   
-  console.log('Homepage - challengeResult:', challengeResult);
-  console.log('Homepage - selectedRun:', selectedRun);
-  console.log('Homepage - has visualization_data:', !!challengeResult?.visualization_data);
+  // Get current shape based on selection
+  const todaysShape = getTodaysShape(selectedShapeId);
+  
+  // Clear challenge result when shape changes to force re-grading
+  useEffect(() => {
+    if (challengeResult) {
+      console.log('🔄 Homepage - Shape changed, clearing challenge result to force re-grading');
+      clearChallengeResult();
+    }
+  }, [selectedShapeId]);
+  
+  // Shape navigation functions
+  const goToPreviousShape = () => {
+    const currentIndex = primaryShapes.findIndex(shape => shape.id === selectedShapeId);
+    const previousIndex = currentIndex > 0 ? currentIndex - 1 : primaryShapes.length - 1;
+    const newShapeId = primaryShapes[previousIndex].id;
+    setSelectedShapeId(newShapeId);
+    console.log('🔄 Homepage - Changed to shape:', newShapeId);
+  };
+  
+  const goToNextShape = () => {
+    const currentIndex = primaryShapes.findIndex(shape => shape.id === selectedShapeId);
+    const nextIndex = currentIndex < primaryShapes.length - 1 ? currentIndex + 1 : 0;
+    const newShapeId = primaryShapes[nextIndex].id;
+    setSelectedShapeId(newShapeId);
+    console.log('🔄 Homepage - Changed to shape:', newShapeId);
+  };
+  
+  console.log('🏠 Homepage - challengeResult:', challengeResult);
+  console.log('🏠 Homepage - selectedRun:', selectedRun);
+  console.log('🏠 Homepage - has visualization_data:', !!challengeResult?.visualization_data);
+  
+  if (challengeResult?.visualization_data) {
+    console.log('🎨 Homepage - visualization_data keys:', Object.keys(challengeResult.visualization_data));
+    console.log('🎨 Homepage - strava coords:', challengeResult.visualization_data.strava_transformed?.length || 0);
+    console.log('🎨 Homepage - svg coords:', challengeResult.visualization_data.svg_normalized?.length || 0);
+  }
 
   // Derive dynamic leaderboard data: override bestAccuracy with user's current score if higher
   const userScore = typeof challengeResult?.score === 'number' ? Number(challengeResult.score.toFixed(1)) : null;
@@ -73,6 +105,44 @@ export default function Home() {
             </h1>
             
             <div className="flex flex-col items-center">
+              {/* Shape Selector */}
+              <div className="mb-6 flex items-center justify-center space-x-6">
+                <button 
+                  onClick={goToPreviousShape}
+                  className="p-2 text-white hover:text-[var(--primary-orange)] transition-colors"
+                  aria-label="Previous shape"
+                >
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                
+                <div className="flex space-x-4">
+                  {primaryShapes.map((shape, index) => (
+                    <button
+                      key={shape.id}
+                      onClick={() => setSelectedShapeId(shape.id)}
+                      className={`w-3 h-3 rounded-full transition-all ${
+                        shape.id === selectedShapeId 
+                          ? 'bg-[var(--primary-orange)]' 
+                          : 'bg-gray-600 hover:bg-gray-400'
+                      }`}
+                      aria-label={`Select ${shape.name}`}
+                    />
+                  ))}
+                </div>
+                
+                <button 
+                  onClick={goToNextShape}
+                  className="p-2 text-white hover:text-[var(--primary-orange)] transition-colors"
+                  aria-label="Next shape"
+                >
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
+              
               <div className="mb-6 relative w-full h-[520px] mx-auto flex items-center justify-center">
                 {/* Map background with low opacity */}
                 <div 
@@ -120,7 +190,7 @@ export default function Home() {
                   </p>
                   {challengeResult.visualization_data ? (
                     <p className="text-sm text-gray-400">
-                      Your run is overlaid in <span className="text-[var(--primary-orange)]">orange</span> on the target shape
+                      Your <span className="text-[var(--primary-orange)]">orange</span> run path is overlaid on the shape
                     </p>
                   ) : (
                     <p className="text-sm text-red-400">
@@ -201,7 +271,8 @@ export default function Home() {
       {/* Challenge Modal */}
       <ChallengeModal 
         isOpen={isChallengeModalOpen} 
-        onClose={() => setIsChallengeModalOpen(false)} 
+        onClose={() => setIsChallengeModalOpen(false)}
+        targetShape={selectedShapeId}
       />
     </ProtectedRoute>
   );

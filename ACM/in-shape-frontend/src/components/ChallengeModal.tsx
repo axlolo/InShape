@@ -28,16 +28,24 @@ interface ChallengeResult {
   score: number;
   grade: string;
   message: string;
+  visualization_data?: {
+    coverage_of_target_pct: number;
+    coverage_of_gps_pct: number;
+    best_rotation_deg: number;
+    algorithm: string;
+    full_metrics?: any;
+  };
 }
 
 interface ChallengeModalProps {
   isOpen: boolean;
   onClose: () => void;
+  targetShape?: string; // The target shape to grade against
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
 
-export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps) {
+export default function ChallengeModal({ isOpen, onClose, targetShape = 'rectangle' }: ChallengeModalProps) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null);
   const [challengeResult, setChallengeResult] = useState<ChallengeResult | null>(null);
@@ -45,14 +53,18 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
   const [error, setError] = useState<string | null>(null);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [autoGrading, setAutoGrading] = useState(false);
+  const [userHasManuallySelected, setUserHasManuallySelected] = useState(false);
   
   const { setSelectedRun, setChallengeResult: setGlobalChallengeResult } = useChallenge();
 
   useEffect(() => {
     if (isOpen) {
       fetchRecentActivities();
+    } else {
+      // Reset manual selection flag when modal closes
+      setUserHasManuallySelected(false);
     }
-  }, [isOpen]);
+  }, [isOpen, targetShape]); // Re-fetch when target shape changes
 
   const fetchRecentActivities = async () => {
     setLoadingActivities(true);
@@ -66,7 +78,7 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/activities/recent?days=60&include_grades=true&shape=rectangle`, {
+      const response = await fetch(`${API_BASE_URL}/api/activities/recent?days=60&include_grades=true&shape=${targetShape}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -76,12 +88,30 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
         const data = await response.json();
         setActivities(data.activities);
         
-        // Auto-select the top pregraded activity if available
-        if (data.activities.length > 0) {
+        // Try to maintain existing selection across target shape changes
+        if (selectedActivity && userHasManuallySelected) {
+          // Find the same activity in the new list
+          const sameActivity = data.activities.find((act: Activity) => act.id === selectedActivity.id);
+          if (sameActivity) {
+            console.log('🔄 Maintaining selection across shape change:', sameActivity.name, sameActivity.id);
+            setSelectedActivity(sameActivity);
+            // Re-grade for the new target shape if needed
+            void autoGradeForOverlay(sameActivity);
+          } else {
+            console.log('⚠️ Previous selection not found in new target shape results');
+            console.log('🔄 Re-grading existing selection for new target shape:', selectedActivity.name);
+            // Keep the old selection but re-grade it for the new target shape
+            void autoGradeForOverlay(selectedActivity);
+          }
+        } else if (data.activities.length > 0 && !selectedActivity && !userHasManuallySelected) {
+          // Only auto-select if no activity is currently selected
           const first = data.activities[0] as Activity;
+          console.log('🔄 Auto-selecting first activity:', first.name, first.id);
           setSelectedActivity(first);
           // Kick off auto-grading for overlay coordinates
           void autoGradeForOverlay(first);
+        } else {
+          console.log('📌 Keeping existing state:', selectedActivity?.name, selectedActivity?.id);
         }
       } else {
         setError('Failed to fetch recent activities');
@@ -97,6 +127,13 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
   const autoGradeForOverlay = async (activity: Activity) => {
     if (!activity) return;
     
+    // Prevent multiple simultaneous grading operations
+    if (autoGrading) {
+      console.log('⏳ Already grading, skipping duplicate request for:', activity.name);
+      return;
+    }
+    
+    console.log('🔄 Starting auto-grade for activity:', activity.name, activity.id);
     setAutoGrading(true);
     setError(null);
     
@@ -115,20 +152,23 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          shape: 'rectangle',
+          shape: targetShape,
           include_coordinates: true
         }),
       });
 
       if (response.ok) {
         const result = await response.json();
-        console.log('Grade response:', result);
+        console.log('✅ Grade response for', activity.name, ':', result);
         console.log('Has visualization_data:', !!result.visualization_data);
-        setChallengeResult(result);
         
-        // Store in global context for homepage overlay
+        // Always store in global context for homepage overlay FIRST
+        console.log('🌍 Setting global context - selectedRun:', activity.name, activity.id);
         setSelectedRun(activity);
         setGlobalChallengeResult(result);
+        
+        // Then update local modal state
+        setChallengeResult(result);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to grade activity');
@@ -142,6 +182,8 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
   };
 
   const handleActivitySelect = (activity: Activity) => {
+    console.log('🎯 User manually selected activity:', activity.name, activity.id);
+    setUserHasManuallySelected(true); // Mark that user has made a manual selection
     setSelectedActivity(activity);
     setChallengeResult(null); // Clear previous result
     // Auto-grade the newly selected activity for overlay
@@ -200,7 +242,7 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
             </div>
             <div>
               <h2 className="text-2xl font-bold text-white" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>
-                Rectangle Challenge
+                {targetShape.charAt(0).toUpperCase() + targetShape.slice(1)} Challenge
               </h2>
               <p className="text-gray-400 text-sm">Test your shape-running skills!</p>
             </div>
@@ -327,8 +369,34 @@ export default function ChallengeModal({ isOpen, onClose }: ChallengeModalProps)
                           {challengeResult.message}
                         </p>
                         
+                        {/* IoU Metrics Display */}
+                        {challengeResult.visualization_data && (
+                          <div className="mb-4 space-y-2">
+                            <div className="grid grid-cols-1 gap-2 text-sm">
+                              <div className="flex justify-between items-center py-1 px-3 bg-[#1a1a1a] rounded">
+                                <span className="text-gray-400">Target Coverage:</span>
+                                <span className="text-white font-medium">
+                                  {challengeResult.visualization_data.coverage_of_target_pct.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 px-3 bg-[#1a1a1a] rounded">
+                                <span className="text-gray-400">Route Efficiency:</span>
+                                <span className="text-white font-medium">
+                                  {challengeResult.visualization_data.coverage_of_gps_pct.toFixed(1)}%
+                                </span>
+                              </div>
+                              <div className="flex justify-between items-center py-1 px-3 bg-[#1a1a1a] rounded">
+                                <span className="text-gray-400">Optimal Rotation:</span>
+                                <span className="text-white font-medium">
+                                  {challengeResult.visualization_data.best_rotation_deg}°
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="text-sm text-gray-400">
-                          Shape similarity calculated using Procrustes analysis
+                          Shape similarity calculated using IoU-based algorithm
                         </div>
                       </div>
                     </div>

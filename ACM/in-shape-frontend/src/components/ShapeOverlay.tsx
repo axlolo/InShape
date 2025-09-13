@@ -3,9 +3,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 interface VisualizationData {
-  strava_transformed: number[][];
-  svg_normalized: number[][];
-  transform_info: {
+  // Old procrustes format (for backwards compatibility)
+  strava_transformed?: number[][];
+  svg_normalized?: number[][];
+  transform_info?: {
     rotation_matrix: number[][];
     best_shift: number;
     best_direction: number;
@@ -14,6 +15,13 @@ interface VisualizationData {
     strava_scale: number;
     svg_scale: number;
   };
+  
+  // New IoU format
+  coverage_of_target_pct?: number;
+  coverage_of_gps_pct?: number;
+  best_rotation_deg?: number;
+  algorithm?: string;
+  full_metrics?: any;
 }
 
 interface ShapeOverlayProps {
@@ -31,16 +39,43 @@ export default function ShapeOverlay({
   showTargetShape = true,
   showUserPath = true
 }: ShapeOverlayProps) {
-  console.log('ShapeOverlay received data:', visualizationData);
+  console.log('🎨 ShapeOverlay received data:', visualizationData);
   
   if (!visualizationData) {
-    console.log('No visualization data provided');
+    console.log('❌ No visualization data provided to ShapeOverlay');
     return null;
   }
 
   const { strava_transformed, svg_normalized } = visualizationData;
-  console.log('Strava transformed points:', strava_transformed?.length);
-  console.log('SVG normalized points:', svg_normalized?.length);
+  
+  console.log('🔍 ShapeOverlay data check:');
+  console.log('  - Strava coords:', strava_transformed?.length || 0, 'points');
+  console.log('  - SVG coords:', svg_normalized?.length || 0, 'points');  
+  console.log('  - Algorithm:', visualizationData.algorithm);
+  console.log('  - All keys:', Object.keys(visualizationData));
+  
+  // Ensure we have the required coordinate data for visualization
+  if (!strava_transformed || !svg_normalized || 
+      strava_transformed.length === 0 || svg_normalized.length === 0) {
+    console.log('❌ Missing coordinate data for overlay visualization');
+    console.log('   Strava points:', strava_transformed?.length || 0);
+    console.log('   SVG points:', svg_normalized?.length || 0);
+    
+    // Show a debug overlay instead of returning null
+    return (
+      <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+        <div className="text-red-500 text-sm bg-black bg-opacity-50 p-2 rounded">
+          Debug: Missing coordinate data<br/>
+          Strava: {strava_transformed?.length || 0} points<br/>
+          SVG: {svg_normalized?.length || 0} points
+        </div>
+      </div>
+    );
+  }
+  
+  console.log('✅ Rendering ShapeOverlay with:', visualizationData.algorithm);
+  console.log('   Strava points:', strava_transformed.length);
+  console.log('   SVG points:', svg_normalized.length);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState<{ width: number; height: number }>({ width, height });
@@ -353,13 +388,13 @@ export default function ShapeOverlay({
         viewBox={`0 0 ${dims.width} ${dims.height}`}
         className="absolute inset-0 pointer-events-none"
       >
-        {/* User's run path (Strava) */}
+        {/* User's run path (orange) */}
         {showUserPath && (
           <path
             d={stravaPath}
             fill="none"
             stroke="#ff6600" // Bright orange
-            strokeWidth="5"
+            strokeWidth="4"
             opacity="1"
           />
         )}

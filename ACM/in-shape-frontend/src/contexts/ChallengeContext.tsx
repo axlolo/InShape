@@ -3,9 +3,10 @@
 import React, { createContext, useContext, useState } from 'react';
 
 interface VisualizationData {
-  strava_transformed: number[][];
-  svg_normalized: number[][];
-  transform_info: {
+  // Old procrustes format (for backwards compatibility)
+  strava_transformed?: number[][];
+  svg_normalized?: number[][];
+  transform_info?: {
     rotation_matrix: number[][];
     best_shift: number;
     best_direction: number;
@@ -14,6 +15,13 @@ interface VisualizationData {
     strava_scale: number;
     svg_scale: number;
   };
+  
+  // New IoU format
+  coverage_of_target_pct?: number;
+  coverage_of_gps_pct?: number;
+  best_rotation_deg?: number;
+  algorithm?: string;
+  full_metrics?: any;
 }
 
 interface ChallengeResult {
@@ -34,6 +42,7 @@ interface ChallengeContextType {
   setChallengeResult: (result: ChallengeResult) => void;
   setIsLoading: (loading: boolean) => void;
   clearChallenge: () => void;
+  clearChallengeResult: () => void; // Clear result but keep selected run
 }
 
 const ChallengeContext = createContext<ChallengeContextType | undefined>(undefined);
@@ -49,6 +58,12 @@ export function ChallengeProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false);
   };
 
+  const clearChallengeResult = () => {
+    setChallengeResult(null);
+    setIsLoading(false);
+    // Keep selectedRun intact
+  };
+
   return (
     <ChallengeContext.Provider
       value={{
@@ -59,6 +74,7 @@ export function ChallengeProvider({ children }: { children: React.ReactNode }) {
         setChallengeResult,
         setIsLoading,
         clearChallenge,
+        clearChallengeResult,
       }}
     >
       {children}

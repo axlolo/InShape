@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Visualizer for GPS vs SVG similarity and overlap (IoU) used by algorithm.py
+Visualizer for GPS vs SVG overlap (IoU) used by algorithm.py
 
 It renders:
 - Target mask (filled shape)
@@ -26,6 +26,9 @@ from algorithm import (
     grid_lin,
     target_polygon_mask,
     gps_path_mask,
+    polygon_mask,
+    get_mask_geometric_center,
+    align_shapes_to_target_center,
     best_overlap_iou,
 )
 
@@ -67,7 +70,12 @@ def visualize_comparison(
     # Build masks at best angle
     tgt_mask = target_polygon_mask(target_norm, grid_size)
     gps_rot = rotate_points(gps_norm, best_angle)
-    gps_mask = gps_path_mask(gps_rot, grid_size, stroke_width_norm)
+    
+    # Align GPS route to target mask center
+    gps_aligned = align_shapes_to_target_center(gps_rot, tgt_mask, grid_size)
+    
+    gps_mask = gps_path_mask(gps_aligned, grid_size, stroke_width_norm)
+    gps_mask_poly = polygon_mask(gps_aligned, grid_size)
 
     # Intersection map for overlay
     intersection = np.logical_and(tgt_mask, gps_mask)
@@ -93,46 +101,73 @@ def visualize_comparison(
     axes[0, 2].set_title("Overlay (purple = intersection)")
     axes[0, 2].axis("off")
 
-    # Prominent similarity score overlay (safe fallback if field missing)
-    sim_pct = result.get("similarity_score_pct", result.get("overlap_signed_pct", None))
-    sim_txt = f"Similarity: {sim_pct:.1f}%" if isinstance(sim_pct, (int, float)) else "Similarity: N/A"
-    axes[0, 2].text(
-        0.02, 0.98, sim_txt,
-        transform=axes[0, 2].transAxes,
-        va="top", ha="left",
-        fontsize=14, color="white",
-        bbox=dict(facecolor="black", alpha=0.6, boxstyle="round,pad=0.3")
+    # Calculate actual centroids
+    target_centroid = np.mean(target_norm, axis=0)
+    gps_centroid = np.mean(gps_aligned, axis=0)
+    
+    # Calculate target mask geometric center and convert to normalized coordinates
+    target_mask_center = get_mask_geometric_center(tgt_mask)
+    target_mask_center_norm = (
+        (target_mask_center[0] / (grid_size - 1)) * 2 - 1,  # Convert to [-1, 1]
+        (target_mask_center[1] / (grid_size - 1)) * 2 - 1
     )
 
     # Row 2: normalized outlines (quick sanity check)
     # Target polygon outline
     axes[1, 0].plot(target_norm[:, 0], target_norm[:, 1], "r-", lw=2)
+    axes[1, 0].scatter(0, 0, c="black", s=100, marker="+", linewidth=3, label="Origin (0,0)")
+    axes[1, 0].scatter(target_centroid[0], target_centroid[1], c="red", s=60, marker="o", label=f"Point Center ({target_centroid[0]:.2f}, {target_centroid[1]:.2f})")
+    axes[1, 0].scatter(target_mask_center_norm[0], target_mask_center_norm[1], c="darkred", s=80, marker="s", label=f"Mask Center ({target_mask_center_norm[0]:.2f}, {target_mask_center_norm[1]:.2f})")
     axes[1, 0].set_title("Target (normalized outline)")
     axes[1, 0].set_aspect("equal")
     axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].legend()
 
     # GPS path normalized and rotated
-    axes[1, 1].plot(gps_rot[:, 0], gps_rot[:, 1], "b-", lw=2)
-    axes[1, 1].set_title(f"GPS (normalized, rot {best_angle}°)")
+    axes[1, 1].plot(gps_aligned[:, 0], gps_aligned[:, 1], "b-", lw=2)
+    axes[1, 1].scatter(0, 0, c="black", s=100, marker="+", linewidth=3, label="Origin (0,0)")
+    axes[1, 1].scatter(gps_centroid[0], gps_centroid[1], c="blue", s=80, marker="o", label=f"GPS Center ({gps_centroid[0]:.2f}, {gps_centroid[1]:.2f})")
+    axes[1, 1].set_title(f"GPS (aligned to target center)")
     axes[1, 1].set_aspect("equal")
     axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].legend()
 
     # Combined outlines
     axes[1, 2].plot(target_norm[:, 0], target_norm[:, 1], "r-", lw=2, label="Target")
-    axes[1, 2].plot(gps_rot[:, 0], gps_rot[:, 1], "b-", lw=2, label="GPS")
-    axes[1, 2].set_title("Outlines (normalized)")
+    axes[1, 2].plot(gps_aligned[:, 0], gps_aligned[:, 1], "b-", lw=2, label="GPS")
+    axes[1, 2].scatter(0, 0, c="black", s=100, marker="+", linewidth=3, label="Origin (0,0)")
+    axes[1, 2].scatter(target_centroid[0], target_centroid[1], c="red", s=60, marker="o", label="Target Point Center")
+    axes[1, 2].scatter(gps_centroid[0], gps_centroid[1], c="blue", s=60, marker="o", label="GPS Point Center")
+    axes[1, 2].scatter(target_mask_center_norm[0], target_mask_center_norm[1], c="darkred", s=80, marker="s", label="Target Mask Center")
+    axes[1, 2].set_title("Outlines (aligned centers)")
     axes[1, 2].set_aspect("equal")
     axes[1, 2].grid(True, alpha=0.3)
     axes[1, 2].legend()
 
+    # Compute custom scoring components
+    overlap_area = np.logical_and(gps_mask_poly, tgt_mask).sum()
+    missing_mask_area = np.logical_and(tgt_mask, np.logical_not(gps_mask_poly)).sum()  # target not covered
+    extra_route_area = np.logical_and(gps_mask_poly, np.logical_not(tgt_mask)).sum()   # GPS outside target
+    total_mask_area = max(1, tgt_mask.sum())  # guard divide by zero
+    
+    # Raw Score = Overlap - 1.0×Missing - 0.3×Extra
+    raw_score = overlap_area - (1.0 * missing_mask_area) - (0.3 * extra_route_area)
+    final_similarity = (raw_score / total_mask_area) * 100.0
+    
+    # Display components as percentages
+    overlap_pct = overlap_area / total_mask_area * 100.0
+    missing_pct = missing_mask_area / total_mask_area * 100.0
+    extra_pct = extra_route_area / total_mask_area * 100.0
+
     fig.suptitle(
-        f"{sim_txt} | IoU {result['overlap_iou_pct']}% | TargetCov {result['coverage_of_target_pct']}% | GPSCov {result['coverage_of_gps_pct']}% | Rot {best_angle}°",
-        fontsize=12,
+        (
+            f"Rot {best_angle}° | IoU {result['overlap_iou_pct']}% | TargetCov {result['coverage_of_target_pct']}% | GPSCov {result['coverage_of_gps_pct']}%\n"
+            f"Overlap: {overlap_pct:.1f}%   Missing: -{missing_pct:.1f}%   Extra: -{extra_pct:.1f}% (×0.3)   = Final: {final_similarity:.1f}%"
+        ),
+        fontsize=11,
     )
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(outfile, dpi=150)
-    # Console message includes similarity for clarity
-    print(sim_txt)
     print(f"Saved visualization to '{outfile}'")
     plt.show()
 

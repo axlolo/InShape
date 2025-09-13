@@ -377,16 +377,16 @@ class DatabaseService:
             }
         }
     
-    def get_challenge_score(self, user_id: str, activity_id: str, shape: str):
-        """Get existing challenge score for a specific activity, shape, and grading method"""
+    def get_challenge_score(self, user_id: str, activity_id: str, target_shape: str):
+        """Get existing challenge score for a specific activity, target shape, and grading method"""
         session = self.get_session()
         try:
             score = session.query(ChallengeScore).filter(
                 and_(
                     ChallengeScore.user_id == user_id,
                     ChallengeScore.activity_id == activity_id,
-                    ChallengeScore.shape == shape,
-                    ChallengeScore.grading_method == 'procrustes'
+                    ChallengeScore.target_shape == target_shape,
+                    ChallengeScore.grading_method == 'iou'
                 )
             ).first()
             return score
@@ -396,7 +396,7 @@ class DatabaseService:
         finally:
             session.close()
     
-    def store_challenge_score(self, user_id: str, activity_id: str, shape: str, score: float, letter_grade: str):
+    def store_challenge_score(self, user_id: str, activity_id: str, target_shape: str, score: float, letter_grade: str):
         """Store or update a challenge score"""
         session = self.get_session()
         try:
@@ -405,8 +405,8 @@ class DatabaseService:
                 and_(
                     ChallengeScore.user_id == user_id,
                     ChallengeScore.activity_id == activity_id,
-                    ChallengeScore.shape == shape,
-                    ChallengeScore.grading_method == 'procrustes'
+                    ChallengeScore.target_shape == target_shape,
+                    ChallengeScore.grading_method == 'iou'
                 )
             ).first()
             
@@ -415,19 +415,19 @@ class DatabaseService:
                 existing_score.score = score
                 existing_score.letter_grade = letter_grade
                 existing_score.updated_at = datetime.now(timezone.utc)
-                logger.info(f"Updated challenge score for user {user_id}, activity {activity_id}, shape {shape}, method procrustes: {score}%")
+                logger.info(f"Updated challenge score for user {user_id}, activity {activity_id}, target_shape {target_shape}, method iou: {score}%")
             else:
                 # Create new score record
                 new_score = ChallengeScore(
                     user_id=user_id,
                     activity_id=activity_id,
-                    shape=shape,
-                    grading_method='procrustes',
+                    target_shape=target_shape,
+                    grading_method='iou',
                     score=score,
                     letter_grade=letter_grade
                 )
                 session.add(new_score)
-                logger.info(f"Created new challenge score for user {user_id}, activity {activity_id}, shape {shape}, method procrustes: {score}%")
+                logger.info(f"Created new challenge score for user {user_id}, activity {activity_id}, target_shape {target_shape}, method iou: {score}%")
             
             session.commit()
             return True
@@ -450,7 +450,7 @@ class DatabaseService:
             return [
                 {
                     'activity_id': score.activity_id,
-                    'shape': score.shape,
+                    'target_shape': score.target_shape,
                     'score': score.score,
                     'letter_grade': score.letter_grade,
                     'created_at': score.created_at.isoformat() if score.created_at else None

@@ -388,7 +388,8 @@ def get_recent_activities():
         
         params = {
             'after': after_timestamp,
-            'per_page': 200  # fetch as many as possible in single page
+            'per_page': 50,  # Smaller page size for faster response with most recent activities
+            'page': 1        # Ensure we get the first page (most recent)
         }
         
         # Use the new helper that handles token refresh on 401
@@ -429,18 +430,31 @@ def get_recent_activities():
                 # Skip any malformed entries safely
                 continue
         
+        # Sort by start_date to ensure most recent runs are first
+        from datetime import datetime
+        running_activities.sort(key=lambda x: datetime.fromisoformat(x['start_date'].replace('Z', '+00:00')), reverse=True)
+        logger.info(f"Sorted {len(running_activities)} running activities by date (most recent first)")
+        
         # Optionally include precomputed grades for each run
         include_grades = request.args.get('include_grades', 'false').lower() == 'true'
         shape = (request.args.get('shape') or 'rectangle').lower()
         
         if include_grades:
+            # Limit processing to first 15 most recent activities for better performance  
+            activities_to_process = running_activities[:15]
+            logger.info(f"Processing {len(activities_to_process)} most recent activities for grading (limited from {len(running_activities)} for performance)")
+            
+            if len(activities_to_process) > 0:
+                most_recent = activities_to_process[0].get('start_date', 'Unknown')
+                logger.info(f"Most recent activity: {most_recent}")
+            
             graded_activities = []
-            for activity in running_activities:
+            for activity in activities_to_process:
                 act = dict(activity)  # shallow copy to annotate
                 act_id = act.get('id')
                 act_user_id = user_id
                 try:
-                    # Check cache first (default to procrustes method for pre-grading)
+                    # Check cache first (using IoU method for pre-grading)
                     existing = db_service.get_challenge_score(act_user_id, str(act_id), shape)
                     if existing:
                         act['challenge_score'] = round(existing.score, 2)
@@ -448,85 +462,21 @@ def get_recent_activities():
                         act['challenge_cached'] = True
                         act['graded'] = True
                         graded_activities.append(act)
+                        logger.info(f"Using cached score for activity {act_id} vs {shape}: {existing.score}%")
                         continue
                     
-                    # Try to fetch streams
-                    streams = None
-                    try:
-                        streams = fetch_activity_streams(access_token, act_id)
-                    except requests.exceptions.HTTPError:
-                        streams = None
-                    except Exception:
-                        streams = None
+                    # Skip expensive grading in pre-loading to improve performance
+                    logger.info(f"No cached score for activity {act_id} vs {shape}, skipping pre-grading for better performance")
+                    act['graded'] = False
+                    act['challenge_error'] = 'Click to grade'
+                    graded_activities.append(act)
+                    continue
                     
-                    # Fallback to polyline if needed
-                    if not streams or 'latlng' not in streams or not streams['latlng'].get('data'):
-                        try:
-                            headers = {'Authorization': f'Bearer {access_token}'}
-                            act_resp = requests.get(
-                                f'https://www.strava.com/api/v3/activities/{act_id}',
-                                headers=headers,
-                                params={'include_all_efforts': 'false'}
-                            )
-                            act_resp.raise_for_status()
-                            act_full = act_resp.json()
-                            polyline = None
-                            if isinstance(act_full, dict):
-                                polyline = (act_full.get('map') or {}).get('summary_polyline') or (act_full.get('map') or {}).get('polyline')
-                            if polyline:
-                                coords = decode_polyline(polyline)
-                                if coords:
-                                    streams = streams or {}
-                                    streams['latlng'] = {'data': coords}
-                        except Exception:
-                            pass
-                    
-                    if not streams or 'latlng' not in streams or not streams['latlng'].get('data'):
-                        act['graded'] = False
-                        act['challenge_error'] = 'No GPS data'
-                        graded_activities.append(act)
-                        continue
-                    
-                    # Create temp file and grade similarity (score only)
-                    import tempfile
-                    import json as _json
-                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                        _json.dump({'coordinates': streams['latlng']['data'], 'activity_id': act_id}, temp_file)
-                        temp_gps_file = temp_file.name
-                    
-                    try:
-                        base_path = '/Users/axeledin/Desktop/ACM_Folder/ACM/in-shape-frontend/public/shapes'
-                        shape_file_map = {
-                            'rectangle': f'{base_path}/rectangle-1.svg',
-                            'circle': f'{base_path}/circle-1.svg',
-                            'triangle': f'{base_path}/triangle-1.svg',
-                            'heart': f'{base_path}/heart-1.svg',
-                            'star': f'{base_path}/star-1.svg'
-                        }
-                        svg_file = shape_file_map.get(shape)
-                        if not svg_file or not os.path.exists(svg_file):
-                            act['graded'] = False
-                            act['challenge_error'] = f'Shape file not found for {shape}'
-                        else:
-                            from procrustes_shape_grader import grade_shape_similarity_procrustes
-                            score_val = grade_shape_similarity_procrustes(temp_gps_file, svg_file)
-                            letter = get_letter_grade(score_val)
-                            # Store in DB (use procrustes for pre-grading)
-                            db_service.store_challenge_score(act_user_id, str(act_id), shape, score_val, letter)
-                            act['challenge_score'] = round(score_val, 2)
-                            act['challenge_grade'] = letter
-                            act['challenge_cached'] = False
-                            act['graded'] = True
-                    finally:
-                        try:
-                            os.unlink(temp_gps_file)
-                        except Exception:
-                            pass
                 except Exception as e:
                     act['graded'] = False
                     act['challenge_error'] = 'Grading failed'
                     logger.warning(f"Failed to pre-grade activity {act_id}: {e}")
-                graded_activities.append(act)
+                    graded_activities.append(act)
             running_activities = graded_activities
         
         return jsonify({
@@ -624,6 +574,48 @@ def fetch_all_strava_activities(access_token):
     logger.info(f"✅ Completed fetching {len(all_activities)} total activities from Strava")
     return all_activities
 
+def fetch_all_strava_activities_with_refresh(access_token, user_id):
+    """Fetch ALL activities from Strava API using pagination with token refresh support"""
+    all_activities = []
+    page = 1
+    per_page = 200  # Maximum allowed by Strava
+    
+    logger.info("🔄 Starting to fetch all activities from Strava API with token refresh...")
+    
+    while True:
+        params = {'per_page': per_page, 'page': page}
+        
+        logger.info(f"📥 Fetching page {page} (up to {per_page} activities)...")
+        
+        try:
+            activities = make_strava_request(
+                'https://www.strava.com/api/v3/athlete/activities',
+                access_token,
+                user_id,
+                params
+            )
+        except Exception as e:
+            logger.error(f"Failed to fetch activities page {page}: {e}")
+            break
+        
+        # If we get fewer activities than requested, we've reached the end
+        if not activities or len(activities) < per_page:
+            all_activities.extend(activities)
+            logger.info(f"📋 Page {page}: Retrieved {len(activities)} activities (final page)")
+            break
+            
+        all_activities.extend(activities)
+        logger.info(f"📋 Page {page}: Retrieved {len(activities)} activities (total so far: {len(all_activities)})")
+        page += 1
+        
+        # Safety check to prevent infinite loops
+        if page > 100:  # Max 20,000 activities
+            logger.warning("⚠️  Reached maximum page limit for activity fetching")
+            break
+    
+    logger.info(f"✅ Completed fetching {len(all_activities)} total activities from Strava")
+    return all_activities
+
 def fetch_strava_activities(access_token, per_page=30):
     """Fetch activities from Strava API (limited)"""
     headers = {'Authorization': f'Bearer {access_token}'}
@@ -699,6 +691,16 @@ def fetch_athlete_stats(access_token, athlete_id):
     response.raise_for_status()
     
     return response.json()
+
+def fetch_athlete_stats_with_refresh(access_token, user_id):
+    """Fetch athlete statistics from Strava API with token refresh support"""
+    url = f'https://www.strava.com/api/v3/athletes/{user_id}/stats'
+    
+    try:
+        return make_strava_request(url, access_token, user_id)
+    except Exception as e:
+        logger.error(f"Failed to fetch athlete stats for user {user_id}: {e}")
+        raise
 
 def calculate_comprehensive_stats(activities):
     """Calculate comprehensive stats from all activities"""
@@ -817,18 +819,38 @@ def get_enhanced_athlete_stats():
         user_id = payload['user_id']
         logger.info(f"Enhanced stats request for user_id: {user_id}")
         
-        # Get Strava access token from JWT (new format) or database (legacy)
-        access_token = None
+        # Get Strava access token (with automatic refresh if needed)
         if 'access_token' in payload:
+            # For JWT tokens, we need to check if they're expired and handle refresh
             access_token = payload['access_token']
+            # Try a test request to see if token is still valid
+            try:
+                test_headers = {'Authorization': f'Bearer {access_token}'}
+                test_response = requests.get('https://www.strava.com/api/v3/athlete', headers=test_headers)
+                if test_response.status_code == 401:
+                    logger.info(f"JWT access token expired for user {user_id} in enhanced stats, attempting refresh")
+                    # Try to refresh using refresh_token from JWT
+                    if 'refresh_token' in payload:
+                        new_token_data = refresh_strava_token(payload['refresh_token'])
+                        access_token = new_token_data['access_token']
+                        # Store the new token in database for future use
+                        db_service.store_user_tokens(user_id, new_token_data)
+                        logger.info(f"Successfully refreshed JWT token for user {user_id} in enhanced stats")
+                    else:
+                        # Fallback to database token refresh
+                        access_token = get_valid_access_token(user_id)
+            except Exception as e:
+                logger.warning(f"JWT token test failed for user {user_id} in enhanced stats: {e}, trying database fallback")
+                access_token = get_valid_access_token(user_id)
         else:
-            token_record = db_service.get_active_token(user_id)
-            if not token_record:
-                return jsonify({'error': 'No valid Strava token found'}), 401
-            access_token = token_record.access_token
-        
+            access_token = get_valid_access_token(user_id)
+            
         if not access_token:
-            return jsonify({'error': 'No valid Strava token available'}), 401
+            return jsonify({
+                'error': 'Strava authentication expired', 
+                'auth_required': True,
+                'message': 'Please reconnect with Strava to access profile data'
+            }), 401
         
         # Check if we should use cached stats or refresh from API
         force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
@@ -848,7 +870,7 @@ def get_enhanced_athlete_stats():
         
         # Fetch ALL activities and calculate comprehensive stats
         logger.info(f"Refreshing stats for user {user_id} - fetching all activities from Strava")
-        all_activities = fetch_all_strava_activities(access_token)
+        all_activities = fetch_all_strava_activities_with_refresh(access_token, user_id)
         
         # Calculate comprehensive stats from all activities
         calculated_stats = calculate_comprehensive_stats(all_activities)
@@ -879,22 +901,42 @@ def refresh_athlete_stats():
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         user_id = payload['user_id']
         
-        # Get Strava access token
-        access_token = None
+        # Get Strava access token (with automatic refresh if needed)
         if 'access_token' in payload:
+            # For JWT tokens, we need to check if they're expired and handle refresh
             access_token = payload['access_token']
+            # Try a test request to see if token is still valid
+            try:
+                test_headers = {'Authorization': f'Bearer {access_token}'}
+                test_response = requests.get('https://www.strava.com/api/v3/athlete', headers=test_headers)
+                if test_response.status_code == 401:
+                    logger.info(f"JWT access token expired for user {user_id} in refresh stats, attempting refresh")
+                    # Try to refresh using refresh_token from JWT
+                    if 'refresh_token' in payload:
+                        new_token_data = refresh_strava_token(payload['refresh_token'])
+                        access_token = new_token_data['access_token']
+                        # Store the new token in database for future use
+                        db_service.store_user_tokens(user_id, new_token_data)
+                        logger.info(f"Successfully refreshed JWT token for user {user_id} in refresh stats")
+                    else:
+                        # Fallback to database token refresh
+                        access_token = get_valid_access_token(user_id)
+            except Exception as e:
+                logger.warning(f"JWT token test failed for user {user_id} in refresh stats: {e}, trying database fallback")
+                access_token = get_valid_access_token(user_id)
         else:
-            token_record = db_service.get_active_token(user_id)
-            if not token_record:
-                return jsonify({'error': 'No valid Strava token found'}), 401
-            access_token = token_record.access_token
-        
+            access_token = get_valid_access_token(user_id)
+            
         if not access_token:
-            return jsonify({'error': 'No valid Strava token available'}), 401
+            return jsonify({
+                'error': 'Strava authentication expired', 
+                'auth_required': True,
+                'message': 'Please reconnect with Strava to refresh profile data'
+            }), 401
         
         # Force refresh - fetch ALL activities and recalculate
         logger.info(f"Force refreshing stats for user {user_id}")
-        all_activities = fetch_all_strava_activities(access_token)
+        all_activities = fetch_all_strava_activities_with_refresh(access_token, user_id)
         calculated_stats = calculate_comprehensive_stats(all_activities)
         
         # Update cache
@@ -928,31 +970,45 @@ def get_athlete_stats():
         payload = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         user_id = payload['user_id']
         
-        # Get Strava access token from JWT (new format) or database (legacy)
-        access_token = None
+        # Get Strava access token (with automatic refresh if needed)
         if 'access_token' in payload:
-            # New format - token is in JWT
+            # For JWT tokens, we need to check if they're expired and handle refresh
             access_token = payload['access_token']
+            # Try a test request to see if token is still valid
+            try:
+                test_headers = {'Authorization': f'Bearer {access_token}'}
+                test_response = requests.get('https://www.strava.com/api/v3/athlete', headers=test_headers)
+                if test_response.status_code == 401:
+                    logger.info(f"JWT access token expired for user {user_id} in athlete stats, attempting refresh")
+                    # Try to refresh using refresh_token from JWT
+                    if 'refresh_token' in payload:
+                        new_token_data = refresh_strava_token(payload['refresh_token'])
+                        access_token = new_token_data['access_token']
+                        # Store the new token in database for future use
+                        db_service.store_user_tokens(user_id, new_token_data)
+                        logger.info(f"Successfully refreshed JWT token for user {user_id} in athlete stats")
+                    else:
+                        # Fallback to database token refresh
+                        access_token = get_valid_access_token(user_id)
+            except Exception as e:
+                logger.warning(f"JWT token test failed for user {user_id} in athlete stats: {e}, trying database fallback")
+                access_token = get_valid_access_token(user_id)
         else:
-            # Legacy format - get from database
-            user = db_service.get_user(user_id)
-            if not user:
-                return jsonify({'error': 'User not found'}), 404
+            access_token = get_valid_access_token(user_id)
             
-            token_record = db_service.get_active_token(user_id)
-            if not token_record:
-                return jsonify({'error': 'No valid Strava token found'}), 401
-            access_token = token_record.access_token
-        
         if not access_token:
-            return jsonify({'error': 'No valid Strava token available'}), 401
+            return jsonify({
+                'error': 'Strava authentication expired', 
+                'auth_required': True,
+                'message': 'Please reconnect with Strava to access athlete stats'
+            }), 401
         
         # Always fetch fresh stats from Strava API (no caching since no database storage)
         logger.info(f"Fetching stats for user {user_id} from Strava API")
         
         try:
-            # Fetch fresh stats from Strava
-            fresh_stats = fetch_athlete_stats(access_token, user_id)
+            # Fetch fresh stats from Strava with token refresh support
+            fresh_stats = fetch_athlete_stats_with_refresh(access_token, user_id)
             return jsonify({'stats': fresh_stats, 'source': 'strava_api'})
             
         except requests.exceptions.RequestException as e:
@@ -1178,6 +1234,8 @@ def grade_activity(activity_id):
         base_path = '/Users/axeledin/Desktop/ACM_Folder/ACM/in-shape-frontend/public/shapes'
         shape_file_map = {
             'rectangle': f'{base_path}/rectangle-1.svg',
+            'oval': f'{base_path}/circle-1.svg',
+            'plus': f'{base_path}/plus-1.svg',
             'circle': f'{base_path}/circle-1.svg',
             'triangle': f'{base_path}/triangle-1.svg',
             'heart': f'{base_path}/heart-1.svg',
@@ -1191,15 +1249,16 @@ def grade_activity(activity_id):
         # Import and use the shape grader
         if include_coordinates:
             try:
-                from procrustes_shape_grader import grade_shape_similarity_with_transform
+                from algorithm import grade_shape_similarity_with_transform_iou
                 # Calculate similarity score with transformation data
-                result = grade_shape_similarity_with_transform(temp_gps_file, svg_file)
+                result = grade_shape_similarity_with_transform_iou(temp_gps_file, svg_file)
                 score = result['similarity']
                 letter_grade = get_letter_grade(score)
                 
-                logger.info(f"Enhanced grade result keys: {list(result.keys())}")
-                logger.info(f"Strava points count: {len(result.get('strava_transformed', []))}")
-                logger.info(f"SVG points count: {len(result.get('svg_normalized', []))}")
+                logger.info(f"IoU grade result keys: {list(result.keys())}")
+                logger.info(f"Coverage of target: {result.get('coverage_of_target_pct', 0)}%")
+                logger.info(f"Coverage of GPS: {result.get('coverage_of_gps_pct', 0)}%")
+                logger.info(f"Best rotation: {result.get('best_rotation_deg', 0)}°")
                 
                 # Store the score in the database
                 db_service.store_challenge_score(user_id, str(activity_id), shape, score, letter_grade)
@@ -1215,9 +1274,14 @@ def grade_activity(activity_id):
                     'message': f'Your run scored {score:.1f}% similarity to a {shape}!',
                     'cached': False,
                     'visualization_data': {
-                        'strava_transformed': result['strava_transformed'],
-                        'svg_normalized': result['svg_normalized'],
-                        'transform_info': result['transform_info']
+                        'coverage_of_target_pct': result.get('coverage_of_target_pct', 0),
+                        'coverage_of_gps_pct': result.get('coverage_of_gps_pct', 0),
+                        'best_rotation_deg': result.get('best_rotation_deg', 0),
+                        'algorithm': result.get('algorithm', 'iou'),
+                        'full_metrics': result.get('full_metrics', {}),
+                        # Include coordinate data for ShapeOverlay
+                        'strava_transformed': result.get('strava_transformed', []),
+                        'svg_normalized': result.get('svg_normalized', [])
                     }
                 })
                 
@@ -1228,9 +1292,9 @@ def grade_activity(activity_id):
                 raise e
         else:
             try:
-                from procrustes_shape_grader import grade_shape_similarity_procrustes
+                from algorithm import grade_shape_similarity_iou
                 # Calculate similarity score only
-                score = grade_shape_similarity_procrustes(temp_gps_file, svg_file)
+                score = grade_shape_similarity_iou(temp_gps_file, svg_file)
                 letter_grade = get_letter_grade(score)
                 
                 # Store the score in the database

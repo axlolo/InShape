@@ -196,8 +196,8 @@ class ChallengeScore(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String, nullable=False)
     activity_id = Column(String, nullable=False)
-    shape = Column(String(50), nullable=False)
-    grading_method = Column(String(20), nullable=False, default='procrustes')  # Always 'procrustes'
+    target_shape = Column(String(50), nullable=False)  # The shape being compared against (rectangle, oval, plus)
+    grading_method = Column(String(20), nullable=False, default='iou')  # Now using IoU algorithm
     score = Column(Float, nullable=False)  # Similarity score (0-100)
     letter_grade = Column(String(2), nullable=False)  # A+, A, B+, etc.
     
@@ -205,4 +205,4 @@ class ChallengeScore(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
     
     def __repr__(self):
-        return f"<ChallengeScore {self.user_id}-{self.activity_id}-{self.shape}-{self.grading_method}: {self.score}%>"
+        return f"<ChallengeScore {self.user_id}-{self.activity_id}-{self.target_shape}-{self.grading_method}: {self.score}%>"

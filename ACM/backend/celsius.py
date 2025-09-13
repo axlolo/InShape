@@ -7,7 +7,7 @@ SVG_SHAPE = """<svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
     <path d="M50,10 L60,35 L85,35 L67,50 L75,75 L50,60 L25,75 L33,50 L15,35 L40,35 Z" fill="gold"/>
 </svg>"""
 
-DONG_STRAVA_COORDINATES = [
+ESHAAN_RUN_STRAVA_COORDINATES = [
     [
       28.737067,
       -81.294388
