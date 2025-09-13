@@ -225,6 +225,107 @@ def grade_shape_similarity_procrustes(strava_file, svg_file, K=512):
     # Convert to percentage
     return similarity * 100
 
+def grade_shape_similarity_with_transform(strava_file, svg_file, K=512):
+    """
+    Grade similarity and return transformed coordinates for visualization.
+    
+    Parameters:
+    - strava_file: Path to Strava JSON file
+    - svg_file: Path to SVG shape file
+    - K: Number of resampling points
+    
+    Returns:
+    - Dictionary with:
+        - similarity: Similarity percentage (0-100)
+        - strava_transformed: Transformed Strava coordinates
+        - svg_normalized: Normalized SVG coordinates
+        - transform_info: Information about the transformation applied
+    """
+    # Parse input data
+    strava_points = parse_strava_data(strava_file)
+    svg_points = parse_svg_to_points(svg_file)
+    
+    # Step 0: Close and resample
+    A = resample_closed_by_arclength(strava_points, K)  # Strava data
+    B = resample_closed_by_arclength(svg_points, K)     # SVG shape
+    
+    # Store original centers for reference
+    strava_center = A.mean(axis=0)
+    svg_center = B.mean(axis=0)
+    
+    # Step 1: Center and scale
+    A = A - A.mean(axis=0)
+    B = B - B.mean(axis=0)
+    
+    # Normalize by Frobenius norm
+    nA = np.linalg.norm(A, 'fro')
+    nB = np.linalg.norm(B, 'fro')
+    
+    if nA == 0 or nB == 0:
+        return {
+            'similarity': 0.0,
+            'strava_transformed': A.tolist(),
+            'svg_normalized': B.tolist(),
+            'transform_info': {'error': 'Zero norm detected'}
+        }
+    
+    A = A / nA
+    B = B / nB
+    
+    # Step 2 & 3: Find best transformation
+    best_similarity = 0.0
+    best_transformed = None
+    best_rotation = None
+    best_shift = 0
+    best_direction = 1
+    
+    for direction in [1, -1]:  # Forward and reverse traversal
+        Bdir = B if direction == 1 else B[::-1]
+        
+        for k in range(K):  # Try all cyclic start points
+            # Cyclic shift
+            Bk = np.roll(Bdir, shift=k, axis=0)
+            
+            # Calculate optimal rotation using SVD
+            C = A.T @ Bk  # 2x2 matrix
+            U, S, Vt = np.linalg.svd(C)
+            
+            # Ensure proper rotation (no reflection)
+            det_UV = np.linalg.det(U @ Vt)
+            D = np.diag([1, np.sign(det_UV)])
+            R = U @ D @ Vt  # Optimal rotation matrix
+            
+            # Apply rotation to A
+            A_rotated = A @ R.T
+            
+            # Calculate similarity score
+            sim = np.trace(D @ np.diag(S))
+            
+            if sim > best_similarity:
+                best_similarity = sim
+                best_transformed = A_rotated.copy()
+                best_rotation = R.copy()
+                best_shift = k
+                best_direction = direction
+    
+    # Clamp similarity to [0, 1] for numerical stability
+    similarity = float(np.clip(best_similarity, 0, 1)) * 100
+    
+    return {
+        'similarity': similarity,
+        'strava_transformed': best_transformed.tolist() if best_transformed is not None else A.tolist(),
+        'svg_normalized': B.tolist(),
+        'transform_info': {
+            'rotation_matrix': best_rotation.tolist() if best_rotation is not None else [[1, 0], [0, 1]],
+            'best_shift': best_shift,
+            'best_direction': best_direction,
+            'strava_center': strava_center.tolist(),
+            'svg_center': svg_center.tolist(),
+            'strava_scale': float(nA),
+            'svg_scale': float(nB)
+        }
+    }
+
 def test_procrustes_grader():
     """Test the Procrustes shape grader with various shapes."""
     print("🔬 Testing Procrustes Shape Grader")
@@ -281,28 +382,6 @@ def test_procrustes_grader():
                     print(f"      Error processing {svg_file}: {e}")
             
             print(f"      Best match: {best_match[0]} ({best_match[1]:.1f}%)")
-
-def example_usage():
-    """Example of how to use the Procrustes shape grader."""
-    print("\n📚 Example Usage:")
-    print("=" * 30)
-    
-    # Example with direct coordinates
-    print("1. Direct coordinate comparison:")
-    circle_points = [(np.cos(t), np.sin(t)) for t in np.linspace(0, 2*np.pi, 50)]
-    square_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
-    
-    sim = shape_similarity(circle_points, square_points)
-    print(f"   Circle vs Square: {sim*100:.1f}%")
-    
-    # Example with files
-    strava_file = "/Users/axeledin/Desktop/ACM_Folder/ACM/StravaDataTxt/RectangleStrava.txt"
-    svg_file = "/Users/axeledin/Desktop/ACM_Folder/ACM/shapes/rectangle-1.svg"
-    
-    if os.path.exists(strava_file) and os.path.exists(svg_file):
-        print("\n2. File-based comparison:")
-        similarity = grade_shape_similarity_procrustes(strava_file, svg_file)
-        print(f"   RectangleStrava vs rectangle-1.svg: {similarity:.1f}%")
 
 def compare_with_existing_algorithms():
     """Compare Procrustes algorithm with existing shape graders."""

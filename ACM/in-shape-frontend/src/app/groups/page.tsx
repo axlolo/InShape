@@ -74,21 +74,21 @@ export default function GroupsPage() {
           <h2 className="text-xl font-semibold text-white mb-6" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>Your Groups</h2>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {mockGroups.map((group) => (
-              <div key={group.id} className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden hover:bg-[#222] transition-colors">
+              <div key={group.id} className="bg-[#1a1a1a] border border-[#2a2a2a] hover:bg-[#222] transition-colors">
                 <div className="p-6">
                   <div className="flex items-center space-x-4 mb-4">
                     <img
-                      className="w-12 h-12 rounded-lg object-cover"
+                      className="w-12 h-12 object-cover"
                       src={group.avatar}
                       alt={group.name}
                     />
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white truncate">{group.name}</h3>
+                      <h3 className="font-semibold text-white truncate" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>{group.name}</h3>
                       <div className="flex items-center text-sm text-gray-400">
                         <UsersIcon className="w-4 h-4 mr-1" />
                         {group.members} members
                         {group.memberRole === 'admin' && (
-                          <span className="ml-2 px-2 py-1 bg-orange-100 text-[var(--primary-orange)] text-xs rounded-full">
+                          <span className="ml-2 px-2 py-0.5 border border-[var(--primary-orange)] text-[var(--primary-orange)] text-xs">
                             Admin
                           </span>
                         )}
@@ -111,12 +111,12 @@ export default function GroupsPage() {
                     </div>
                   </div>
 
-                  <div className="text-sm text-gray-400 mb-4 p-3 bg-[#222] rounded-lg">
+                  <div className="text-sm text-gray-400 mb-4 p-3 bg-[#222] border border-[#2a2a2a]">
                     {group.recentActivity}
                   </div>
 
                   <Link href={`/leaderboard/${group.id}`}>
-                    <button className="w-full bg-[var(--primary-orange)] text-white py-2 px-4 rounded-lg hover:bg-[var(--orange-dark)] transition-colors">
+                    <button className="w-full bg-[var(--primary-orange)] text-white py-3 px-6 font-semibold hover:bg-[var(--orange-dark)] transition-colors">
                       View Leaderboard
                     </button>
                   </Link>
@@ -125,16 +125,16 @@ export default function GroupsPage() {
             ))}
 
             {/* Create New Group Card */}
-            <div className="bg-[#1a1a1a] rounded-xl border border-dashed border-[#2a2a2a] overflow-hidden hover:border-[var(--primary-orange)] transition-colors">
+            <div className="bg-[#1a1a1a] border border-dashed border-[#2a2a2a] hover:border-[var(--primary-orange)] transition-colors">
               <div className="p-6 text-center">
-                <div className="w-12 h-12 mx-auto mb-4 bg-orange-100 rounded-lg flex items-center justify-center">
+                <div className="w-12 h-12 mx-auto mb-4 flex items-center justify-center border border-[var(--primary-orange)]">
                   <PlusIcon className="w-6 h-6 text-[var(--primary-orange)]" />
                 </div>
-                <h3 className="font-semibold text-white mb-2">Create New Group</h3>
+                <h3 className="font-semibold text-white mb-2" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>Create New Group</h3>
                 <p className="text-gray-400 text-sm mb-4">
                   Start your own running group and invite friends
                 </p>
-                <button className="bg-[var(--primary-orange)] text-white py-2 px-4 rounded-lg hover:bg-[var(--orange-dark)] transition-colors">
+                <button className="bg-[var(--primary-orange)] text-white py-3 px-6 font-semibold hover:bg-[var(--orange-dark)] transition-colors">
                   Create Group
                 </button>
               </div>
@@ -147,16 +147,16 @@ export default function GroupsPage() {
           <h2 className="text-xl font-semibold text-white mb-6" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>Discover Groups</h2>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {discoveredGroups.map((group) => (
-              <div key={group.id} className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] overflow-hidden hover:bg-[#222] transition-colors">
+              <div key={group.id} className="bg-[#1a1a1a] border border-[#2a2a2a] hover:bg-[#222] transition-colors">
                 <div className="p-6">
                   <div className="flex items-center space-x-4 mb-4">
                     <img
-                      className="w-12 h-12 rounded-lg object-cover"
+                      className="w-12 h-12 object-cover"
                       src={group.avatar}
                       alt={group.name}
                     />
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white truncate">{group.name}</h3>
+                      <h3 className="font-semibold text-white truncate" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>{group.name}</h3>
                       <div className="flex items-center text-sm text-gray-400">
                         <UsersIcon className="w-4 h-4 mr-1" />
                         {group.members} members
@@ -173,7 +173,7 @@ export default function GroupsPage() {
                     Weekly: {group.weeklyChallenge}
                   </div>
 
-                  <button className="w-full border border-[var(--primary-orange)] text-[var(--primary-orange)] py-2 px-4 rounded-lg hover:bg-[var(--primary-orange)] hover:text-white transition-colors">
+                  <button className="w-full border border-[var(--primary-orange)] text-[var(--primary-orange)] py-3 px-6 font-semibold hover:bg-[var(--primary-orange)] hover:text-white transition-colors">
                     Join Group
                   </button>
                 </div>

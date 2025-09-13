@@ -47,14 +47,10 @@ export const availableShapes = [
   }
 ];
 
-// Get today's shape (can be made dynamic based on date)
+// Get today's shape (for now, always rectangle for the challenge)
 export const getTodaysShape = () => {
-  // For now, return a random shape. In production, this could be based on date
-  // or fetched from an API
-  const today = new Date();
-  const dayOfYear = Math.floor((today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
-  const shapeIndex = dayOfYear % availableShapes.length;
-  return availableShapes[shapeIndex];
+  // For the challenge feature, we're focusing on rectangles
+  return availableShapes.find(shape => shape.name === "Rectangle") || availableShapes[1];
 };
 
 export default availableShapes;

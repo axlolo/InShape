@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -11,6 +11,8 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline';
+import { useAuth } from '../../../contexts/AuthContext';
+import { useChallenge } from '../../../contexts/ChallengeContext';
 
 // Mock data - replace with actual API calls later
 const mockGroupData: { [key: string]: any } = {
@@ -98,7 +100,65 @@ export default function LeaderboardPage() {
   const groupId = params.groupId as string;
   const [leaderboardData, setLeaderboardData] = useState(mockLeaderboardData);
   
+  const { user } = useAuth();
+  const { selectedRun, challengeResult } = useChallenge();
+  
   const groupInfo = mockGroupData[groupId] || mockGroupData['1'];
+
+  // Helpers
+  const metersToMiles = (m?: number) => {
+    if (!m || Number.isNaN(m)) return undefined;
+    return m / 1609.34;
+  };
+  const formatMiles = (miles?: number) => {
+    if (miles === undefined) return undefined;
+    return `${miles.toFixed(1)} miles`;
+  };
+  const secondsToClock = (s?: number) => {
+    if (!s || Number.isNaN(s)) return undefined;
+    const mm = Math.floor(s / 60);
+    const ss = Math.floor(s % 60);
+    return `${mm}:${ss.toString().padStart(2, '0')}`;
+  };
+
+  // When auth or challenge data changes, update the current user's row
+  useEffect(() => {
+    setLeaderboardData(prev => {
+      // 1) Update current user's displayed fields
+      const updated = prev.map(row => {
+        if (!row.isCurrentUser) return row
+
+        const fullName = user ? `${user.firstname} ${user.lastname}` : row.name
+        const avatarUrl = user?.profile || row.avatar
+
+        const updatedDistance = formatMiles(metersToMiles(selectedRun?.distance)) || row.distance
+        const updatedTime = secondsToClock(selectedRun?.moving_time) || row.time
+        const updatedDate = (selectedRun?.start_date ? new Date(selectedRun.start_date).toISOString().slice(0,10) : row.date)
+        const updatedScore = (typeof challengeResult?.score === 'number') ? Number(challengeResult.score.toFixed(1)) : row.score
+
+        return {
+          ...row,
+          name: fullName,
+          avatar: avatarUrl,
+          distance: updatedDistance,
+          time: updatedTime,
+          date: updatedDate,
+          score: updatedScore,
+        }
+      })
+
+      // 2) Sort by score descending
+      const sorted = [...updated].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+
+      // 3) Recompute rank numbers based on new order
+      const reRanked = sorted.map((row, index) => ({
+        ...row,
+        rank: index + 1,
+      }))
+
+      return reRanked
+    })
+  }, [user, selectedRun, challengeResult])
 
   const toggleExpand = (userId: number) => {
     setLeaderboardData(prev => 

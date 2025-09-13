@@ -8,7 +8,8 @@ const mockMissions = [
   {
     id: 1,
     company: 'Nike',
-    logo: 'https://logos-world.net/wp-content/uploads/2020/04/Nike-Logo.png',
+    // Display company logo on the card
+    logo: '/images/NikeCompany.png',
     title: 'Run the Swoosh Challenge',
     description: 'Create Nike\'s iconic swoosh logo with your running route',
     reward: 'Nike Air Zoom Pegasus 40 Running Shoes',
@@ -16,7 +17,8 @@ const mockMissions = [
     deadline: '2024-10-15',
     participants: 1247,
     targetShape: 'Nike Swoosh',
-    shapeImage: '/shapes/star-1.svg', // Using star as placeholder for swoosh
+    // Use the in-run target shape as the user-trace goal (brand logo path for shape)
+    shapeImage: '/images/nike.png',
     requirements: [
       'Route must be at least 2 miles long',
       'Accuracy score of 75% or higher',
@@ -34,15 +36,15 @@ const mockMissions = [
   {
     id: 2,
     company: 'Alo Yoga',
-    logo: 'https://logos-world.net/wp-content/uploads/2023/01/Alo-Yoga-Logo.png',
+    logo: '/images/AloCompany.png',
     title: 'Mindful Movement Circle',
     description: 'Run a perfect circle to embody Alo\'s philosophy of mindful movement',
     reward: 'Alo Yoga Shine Long Sleeve + Leggings Set',
     rewardValue: '$180',
     deadline: '2024-09-30',
     participants: 892,
-    targetShape: 'Perfect Circle',
-    shapeImage: '/shapes/circle-1.svg',
+    targetShape: 'Alo Mark',
+    shapeImage: '/images/alo.png',
     requirements: [
       'Perfect circular route (85%+ accuracy)',
       'Minimum 3 mile distance',
@@ -60,15 +62,15 @@ const mockMissions = [
   {
     id: 3,
     company: 'Adidas',
-    logo: 'https://logos-world.net/wp-content/uploads/2020/04/Adidas-Logo.png',
+    logo: '/images/AdidasCompany.png',
     title: 'Three Stripes Triangle',
     description: 'Honor the three stripes legacy by running a perfect triangle',
     reward: 'Adidas Ultraboost 23 + Training Gear',
     rewardValue: '$220',
     deadline: '2024-11-01',
     participants: 1456,
-    targetShape: 'Equilateral Triangle',
-    shapeImage: '/shapes/triangle-1.svg',
+    targetShape: 'Adidas Three Stripes',
+    shapeImage: '/images/adidas.png',
     requirements: [
       'Equilateral triangle shape (80%+ accuracy)',
       'Each side minimum 1.5 miles',
@@ -86,15 +88,15 @@ const mockMissions = [
   {
     id: 4,
     company: 'Lululemon',
-    logo: 'https://logos-world.net/wp-content/uploads/2020/11/Lululemon-Logo.png',
+    logo: '/images/LululemonCompany.png',
     title: 'Omega Mindfulness Run',
     description: 'Channel inner peace by running Lululemon\'s omega symbol',
     reward: 'Lululemon Fast & Free Tights + Define Jacket',
     rewardValue: '$298',
     deadline: '2024-10-20',
     participants: 743,
-    targetShape: 'Omega Symbol',
-    shapeImage: '/shapes/heart-1.svg', // Using heart as placeholder for omega
+    targetShape: 'Lululemon Omega',
+    shapeImage: '/images/lululemon.png',
     requirements: [
       'Omega-shaped route (75%+ accuracy)',
       'Minimum 4 mile total distance',
@@ -228,7 +230,7 @@ export default function MissionsPage() {
                             <img 
                               src={mission.shapeImage} 
                               alt={mission.targetShape}
-                              className="w-24 h-24 object-contain filter invert"
+                              className="w-24 h-24 object-contain"
                             />
                           </div>
                           <p className="text-center text-gray-400 font-medium">{mission.targetShape}</p>

@@ -1,5 +1,11 @@
+'use client';
+
 import Link from 'next/link';
 import { TrophyIcon, CalendarIcon, ClockIcon, MapPinIcon } from '@heroicons/react/24/outline';
+import { useAuth } from '../../contexts/AuthContext';
+import ProtectedRoute from '../../components/ProtectedRoute';
+import { useAthleteStats } from '../../hooks/useAthleteStats';
+import { useEffect, useState } from 'react';
 
 // Mock data - replace with actual API calls later
 const mockUser = {
@@ -23,48 +29,163 @@ const mockUser = {
 };
 
 export default function ProfilePage() {
+  const { user } = useAuth();
+  const { stats, loading: statsLoading, loadingMessage, formatDistance, formatTime } = useAthleteStats();
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001';
+
+  type Activity = {
+    id: number;
+    name: string;
+    start_date: string;
+    distance: number;
+    moving_time: number;
+    type: string;
+  };
+
+  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
+  const [recentLoading, setRecentLoading] = useState<boolean>(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchRecent = async () => {
+      setRecentLoading(true);
+      setRecentError(null);
+      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+      if (!token) {
+        setRecentError('No authentication token');
+        setRecentLoading(false);
+        return;
+      }
+      try {
+        const resp = await fetch(`${API_BASE_URL}/api/activities/recent?days=14`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resp.ok) {
+          setRecentError('Failed to fetch recent runs');
+        } else {
+          const data = await resp.json();
+          const runs: Activity[] = (data.activities || []).filter((a: any) => a.type === 'Run');
+          setRecentActivities(runs);
+        }
+      } catch (e) {
+        setRecentError('Network error');
+      } finally {
+        setRecentLoading(false);
+      }
+    };
+    fetchRecent();
+  }, []);
+
+  // Format the user's full name
+  const fullName = user ? `${user.firstname} ${user.lastname}` : 'Loading...';
+  
+  // Use user's profile picture or fallback to default
+  const profilePicture = user?.profile || '/default-avatar.svg';
+  
+  // Format location if available
+  const location = user?.city && user?.country ? `${user.city}, ${user.country}` : user?.country || 'Location not set';
+  
+  // Format member since date from Strava creation date
+  const formatMemberSince = (created_at?: string) => {
+    if (!created_at) return "Connected via Strava";
+    
+    const date = new Date(created_at);
+    const options: Intl.DateTimeFormatOptions = { 
+      year: 'numeric', 
+      month: 'long' 
+    };
+    return `Member since ${date.toLocaleDateString('en-US', options)}`;
+  };
+  
+  const memberSince = formatMemberSince(user?.created_at);
+
   return (
-    <div className="min-h-screen bg-[#0f0f0f] py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Profile Header */}
-        <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-8 mb-8">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center space-x-6">
-              <img
-                className="h-24 w-24 rounded-full object-cover"
-                src={mockUser.profilePicture}
-                alt={mockUser.name}
-              />
-              <div>
-                <h1 className="text-3xl font-bold text-white" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>{mockUser.name}</h1>
-                <p className="text-gray-400 flex items-center mt-1">
-                  <CalendarIcon className="w-4 h-4 mr-1" />
-                  Member since {mockUser.memberSince}
-                </p>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-[#0f0f0f] py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          {/* Loading Status Banner */}
+          {statsLoading && (
+            <div className="bg-[#1a1a1a] border border-[var(--primary-orange)] p-4 mb-6 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[var(--primary-orange)]"></div>
+                <div>
+                  <div className="text-white font-medium">Fetching Your Running Data</div>
+                  <div className="text-gray-400 text-sm">{loadingMessage}</div>
+                </div>
               </div>
             </div>
-            
-            <div className="mt-6 md:mt-0 flex flex-col md:flex-row md:space-x-8">
-              <div className="text-center md:text-right">
-                <div className="text-3xl font-bold text-[var(--primary-orange)]">
-                  {mockUser.lifetimePoints.toLocaleString()}
+          )}
+          {/* Profile Header */}
+          <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-8 mb-8">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center space-x-6">
+                <img
+                  className="h-24 w-24 rounded-full object-cover"
+                  src={profilePicture}
+                  alt={fullName}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = '/default-avatar.svg';
+                  }}
+                />
+                <div>
+                  <h1 className="text-3xl font-bold text-white" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>
+                    {fullName}
+                  </h1>
+                  <p className="text-gray-400 flex items-center mt-1">
+                    <CalendarIcon className="w-4 h-4 mr-1" />
+                    {memberSince}
+                  </p>
+                  {location !== 'Location not set' && (
+                    <p className="text-gray-400 flex items-center mt-1">
+                      <MapPinIcon className="w-4 h-4 mr-1" />
+                      {location}
+                    </p>
+                  )}
                 </div>
-                <div className="text-sm text-gray-400">Lifetime Points</div>
+              </div>
+              
+              <div className="mt-6 md:mt-0 flex flex-col md:flex-row md:space-x-8">
+                <div className="text-center md:text-right">
+                  <div className="text-3xl font-bold text-[var(--primary-orange)]">
+                    {statsLoading ? '...' : stats?.this_week_run_totals?.count ? `${stats.this_week_run_totals.count}` : '0'}
+                  </div>
+                  <div className="text-sm text-gray-400">Runs This Week</div>
+                </div>
+                <div className="text-center md:text-right mt-4 md:mt-0">
+                  <div className="text-3xl font-bold text-green-500">
+                    {statsLoading ? '...' : stats?.this_week_run_totals?.moving_time ? formatTime(stats.this_week_run_totals.moving_time) : '0m'}
+                  </div>
+                  <div className="text-sm text-gray-400">Time This Week</div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
         <div className="grid gap-8 lg:grid-cols-3">
           {/* Stats Cards */}
           <div className="lg:col-span-2 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-4">
               <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-6">
                 <div className="flex items-center">
                   <MapPinIcon className="w-8 h-8 text-[var(--primary-orange)]" />
                   <div className="ml-4">
-                    <div className="text-2xl font-bold text-white">{mockUser.totalRuns}</div>
+                    <div className="text-2xl font-bold text-white">
+                      {statsLoading ? '...' : stats?.all_run_totals?.count || 0}
+                    </div>
                     <div className="text-sm text-gray-400">Total Runs</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-6">
+                <div className="flex items-center">
+                  <ClockIcon className="w-8 h-8 text-blue-500" />
+                  <div className="ml-4">
+                    <div className="text-2xl font-bold text-white">
+                      {statsLoading ? '...' : stats?.this_week_run_totals?.distance ? formatDistance(stats.this_week_run_totals.distance) : '0 mi'}
+                    </div>
+                    <div className="text-sm text-gray-400">Distance This Week</div>
                   </div>
                 </div>
               </div>
@@ -73,64 +194,69 @@ export default function ProfilePage() {
                 <div className="flex items-center">
                   <TrophyIcon className="w-8 h-8 text-yellow-500" />
                   <div className="ml-4">
-                    <div className="text-2xl font-bold text-white">{mockUser.bestScore}%</div>
-                    <div className="text-sm text-gray-400">Best Score</div>
+                    <div className="text-2xl font-bold text-white">
+                      {statsLoading ? '...' : stats?.all_run_totals?.distance ? formatDistance(stats.all_run_totals.distance) : '0 mi'}
+                    </div>
+                    <div className="text-sm text-gray-400">All Time Distance</div>
                   </div>
                 </div>
               </div>
               
               <div className="bg-[#1a1a1a] border border-[#2a2a2a] p-6">
                 <div className="flex items-center">
-                  <div className="w-8 h-8 bg-[var(--primary-orange)] rounded-lg flex items-center justify-center">
-                    <span className="text-white font-bold text-xs">⬜</span>
+                  <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white font-bold text-xs">YTD</span>
                   </div>
                   <div className="ml-4">
-                    <div className="text-2xl font-bold text-white">{mockUser.bestShape}</div>
-                    <div className="text-sm text-gray-400">Best Shape</div>
+                    <div className="text-2xl font-bold text-white">
+                      {statsLoading ? '...' : stats?.ytd_run_totals?.distance ? formatDistance(stats.ytd_run_totals.distance) : '0 mi'}
+                    </div>
+                    <div className="text-sm text-gray-400">Year to Date</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Recent Runs */}
+            {/* Recent Runs (last 14 days) */}
             <div className="bg-[#1a1a1a] border border-[#2a2a2a]">
               <div className="p-6 border-b border-[#2a2a2a]">
                 <h2 className="text-xl font-semibold text-white" style={{ fontFamily: 'Alliance No.2, sans-serif' }}>Recent Runs</h2>
               </div>
-              <div className="divide-y divide-[#2a2a2a]">
-                {mockUser.recentRuns.map((run) => (
-                  <div key={run.id} className="p-6 hover:bg-[#222]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                          <span className="text-[var(--primary-orange)] font-bold">
-                            {run.shape[0]}
-                          </span>
+              {recentLoading ? (
+                <div className="p-6 text-gray-400">Loading recent runs...</div>
+              ) : recentError ? (
+                <div className="p-6 text-red-400">{recentError}</div>
+              ) : recentActivities.length === 0 ? (
+                <div className="p-6 text-gray-400">No runs in the last 14 days.</div>
+              ) : (
+                <div className="divide-y divide-[#2a2a2a]">
+                  {recentActivities.map((a) => (
+                    <div key={a.id} className="p-6 hover:bg-[#222]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                            <span className="text-[var(--primary-orange)] font-bold">{(a.name || 'Run').charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div>
+                            <div className="font-medium text-white truncate max-w-xs">{a.name || 'Run'}</div>
+                            <div className="text-sm text-gray-400">{new Date(a.start_date).toLocaleString()}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-white">{run.shape}</div>
-                          <div className="text-sm text-gray-400">{run.date}</div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-6 text-sm">
-                        <div className="text-center">
-                          <div className="font-medium text-white">{run.score}%</div>
-                          <div className="text-gray-400">Score</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-white">{run.distance}</div>
-                          <div className="text-gray-400">Distance</div>
-                        </div>
-                        <div className="text-center">
-                          <div className="font-medium text-white">{run.time}</div>
-                          <div className="text-gray-400">Time</div>
+                        <div className="flex items-center space-x-6 text-sm">
+                          <div className="text-center">
+                            <div className="font-medium text-white">{formatDistance(a.distance)}</div>
+                            <div className="text-gray-400">Distance</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="font-medium text-white">{formatTime(a.moving_time)}</div>
+                            <div className="text-gray-400">Time</div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -161,5 +287,6 @@ export default function ProfilePage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
